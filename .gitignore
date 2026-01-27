@@ -1,0 +1,27 @@
+# --- System ---
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+Thumbs.db
+
+# --- Virtual Environment ---
+venv/
+env/
+.env
+
+# --- Model & Data (Files nặng không đẩy lên git) ---
+checkpoints/*.pt
+checkpoints/*.pth
+image/*.png
+image/*.jpg
+image/*.tif
+
+!checkpoints/.gitkeep
+!image/.gitkeep
+
+temp_auto_crawl.png
+*.log
+
+.vscode/
+.idea/
