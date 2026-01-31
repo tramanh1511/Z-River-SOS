@@ -10,7 +10,7 @@ venv/
 env/
 .env
 
-# --- Model & Data (Files nặng không đẩy lên git) ---
+# --- Model & Data ---
 checkpoints/*.pt
 checkpoints/*.pth
 image/*.png

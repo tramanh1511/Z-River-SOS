@@ -236,6 +236,7 @@ class SamInferer:
 
     def read(self, image_path, channels=3):
         img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+        print(image_path)
         
         if img.shape[-1] > channels: 
             self.label = img[..., channels]

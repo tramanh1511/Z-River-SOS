@@ -1,5 +1,6 @@
 # utils.py
 import os
+from PIL import Image
 import urllib.request
 import numpy as np
 import cv2

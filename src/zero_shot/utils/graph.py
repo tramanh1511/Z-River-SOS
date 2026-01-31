@@ -5,6 +5,8 @@ from queue import PriorityQueue, Queue
 import warnings
 import heapq
 from heapq import heappush, heappop
+import sys
+sys.setrecursionlimit(10000)
 
 directions = np.array([(-1, 0),(-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1)]) 
 def unilateral_dfs_tree(g_mask, inp_mask, start, b_mask = None, alpha=0.1, thresh=0.95, context_size=3, dis_map=None, tolerance=-0.5):

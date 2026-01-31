@@ -1,4 +1,6 @@
-# app.py
+import cv2
+from matplotlib import pyplot as plt
+import scipy
 import streamlit as st
 from streamlit_image_coordinates import streamlit_image_coordinates
 from PIL import Image, ImageDraw
@@ -90,59 +92,66 @@ def main():
             curr_cx, curr_cy = st.session_state["processing_queue"]
             st.session_state["processing_queue"] = None 
             
-            # Jump loop 
-            # Code gốc Hưng để auto jump từ batch đã biết, còn đây chọn thủ công điểm để segment @@ ._. 
-            for jump in range(CFG.MAX_WINDOW_JUMPS):
-                status_ph.info(f"🔄 Jump {jump+1}/{CFG.MAX_WINDOW_JUMPS}: Xử lý vùng ({curr_cx}, {curr_cy})...")
-                
-                # Cắt Patch ảnh
-                nx1 = max(0, curr_cx - CFG.PATCH_SIZE // 2); ny1 = max(0, curr_cy - CFG.PATCH_SIZE // 2)
-                nx2 = min(real_w, nx1 + CFG.PATCH_SIZE); ny2 = min(real_h, ny1 + CFG.PATCH_SIZE)
-                
-                crop_pil = full_img.crop((nx1, ny1, nx2, ny2))
-                # Padding nếu ở biên
-                if crop_pil.size != (CFG.PATCH_SIZE, CFG.PATCH_SIZE):
-                    temp = Image.new("RGB", (CFG.PATCH_SIZE, CFG.PATCH_SIZE), (0,0,0))
-                    temp.paste(crop_pil, (0,0))
-                    crop_pil = temp
-                crop_pil.save(CFG.TEMP_CROP_PATH)
-                
-                model.read(CFG.TEMP_CROP_PATH)
-                model.label = np.zeros((CFG.PATCH_SIZE, CFG.PATCH_SIZE), dtype=np.uint8)
-                center_pt = np.array([CFG.PATCH_SIZE//2, CFG.PATCH_SIZE//2])
-                model.add_queue(utils.PromptWrapper({'pt': utils.SafePoint(center_pt)}), isroot=True)
-                
-                next_move_vec = None
-                
-                for step in range(CFG.LOCAL_STEPS):
-                    if len(model.queue) == 0: break
-                    out = model.iter(debug=True)
-                    
-                    if out.get('ret'):
-                        vis_img = viz.render_visualization_frame(crop_pil, out, CFG.PATCH_SIZE)
-                        view_ph.image(vis_img, caption=f"Jump:{jump+1} Step:{step}", use_container_width=True)
-                        st.session_state["last_visual"] = vis_img
-                        
-                        # Ghép mask
-                        viz.stitch_global_mask(
-                            st.session_state["global_mask"], 
-                            out.get('beta'), 
-                            (nx1, ny1, nx2, ny2), 
-                            (CFG.PATCH_SIZE, CFG.PATCH_SIZE)
-                        )
-                        
-                        # model: Tính toán nhảy
-                        vec, found = backend.calculate_next_jump_vector(out, CFG.PATCH_SIZE)
-                        if found: next_move_vec = vec
-                        
-                        time.sleep(0.01) 
+            model.reset()
+            model.read(CFG.IMAGE_PATH)
+            model.add_queue({'pt': np.array([curr_cy, curr_cx])}, isroot=True)
 
-                if next_move_vec is not None:
-                    curr_cx = int(max(0, min(real_w, curr_cx + next_move_vec[0])))
-                    curr_cy = int(max(0, min(real_h, curr_cy + next_move_vec[1])))
-                else:
-                    status_ph.warning(f"Dừng tại Jump {jump+1} (Hết dòng chảy).")
+            for i in range(200):
+                if len(model.queue) == 0:
                     break
+                
+                output = model.iter(debug=True)
+                
+                if output.get('ret'):
+                    img_float = output['infer']['input'].copy().astype(float) / 255.0
+                    
+                    input_mask = scipy.ndimage.morphological_gradient(output['infer']['inp_mask'], size=3)
+                    src_y, src_x = model.root
+                    label_patch = st.session_state["global_mask"][src_y:src_y+CFG.PATCH_SIZE, src_x:src_x+CFG.PATCH_SIZE]
+                    label_mask = scipy.ndimage.morphological_gradient(label_patch, size=3)
+                    
+                    pred_mask = scipy.ndimage.morphological_gradient(output['beta'].copy(), size=3)
+
+                    combined_masks = np.stack([input_mask, label_mask, pred_mask], axis=-1).max(axis=-1)[..., None]
+                    
+                    vis_image = img_float * (1 - combined_masks) \
+                                + input_mask[..., None] * np.array([1, 0, 0]) \
+                                + label_mask[..., None] * np.array([0, 1, 0]) \
+                                + pred_mask[..., None] * np.array([0, 0, 1])
+
+                    vis_image = (vis_image * 255).astype(np.uint8)
+
+                    cmap = plt.get_cmap('hsv')
+                    branches = [np.array(branch) for (cost, branch) in output.get('branches', [])]
+                    for i_b, branch in enumerate(branches):
+                        c_val = cmap(0.1 + 0.9 * (float(i_b) / max(1, len(branches))))
+                        color_bgr = (int(c_val[2]*255), int(c_val[1]*255), int(c_val[0]*255)) # RGB to BGR
+                        cv2.polylines(vis_image, [branch[:, ::-1]], False, color_bgr, 1)
+
+                    annotation = output['infer'].get('pts', [])
+                    a_label = output['infer'].get('label', [])
+                    for pt, lab in zip(annotation, a_label):
+                        pt_color = (0, 255, 0) if lab == 1 else (0, 0, 255) # Green for pos, Red for neg
+                        cv2.circle(vis_image, tuple(pt.astype(int)), 4, pt_color, -1)
+
+                    roots_pts = output['roots'].get('pts', [])
+                    roots_dirs = output['roots'].get('directions', [])
+                    for pt, di in zip(roots_pts, roots_dirs):
+                        cv2.circle(vis_image, pt[::-1].astype(int), 15, (0, 255, 127), 1) 
+                        if np.linalg.norm(di) > 0:
+                            root_dst = (pt + di * 60).astype(int)
+                            cv2.arrowedLine(vis_image, pt[::-1].astype(int), root_dst[::-1].astype(int), (0, 255, 127), 2)
+
+                    view_ph.image(vis_image, caption=f"Auto-Tracking Step {i}", use_container_width=True)
+                    st.session_state["last_visual"] = vis_image
+                    
+                    viz.stitch_global_mask(
+                        st.session_state["global_mask"], 
+                        output.get('beta'), 
+                        (src_x, src_y, src_x + CFG.PATCH_SIZE, src_y + CFG.PATCH_SIZE),
+                        (CFG.PATCH_SIZE, CFG.PATCH_SIZE)
+                    )
+                    time.sleep(0.01) 
             
             status_ph.success("Done")
             time.sleep(0.5)
