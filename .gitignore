@@ -17,6 +17,10 @@ image/*.png
 image/*.jpg
 image/*.tif
 
+imgs/*.png
+imgs/*.jpg
+imgs/*.tif
+
 !checkpoints/.gitkeep
 !image/.gitkeep
 
