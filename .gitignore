@@ -1,11 +1,9 @@
-# --- System ---
 __pycache__/
 *.py[cod]
 *$py.class
 .DS_Store
 Thumbs.db
 
-# --- Virtual Environment ---
 venv/
 env/
 .env
@@ -17,6 +15,7 @@ image/*.png
 image/*.jpg
 image/*.tif
 
+# Keep folder structure
 !checkpoints/.gitkeep
 !image/.gitkeep
 
